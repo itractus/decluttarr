@@ -5,3 +5,4 @@ python-dateutil
 verboselogs
 pytest
 pytest-asyncio
+json
