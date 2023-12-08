@@ -1,5 +1,5 @@
 # Cleans the download queue
-import logging, verboselogs
+import logging, verboselogs, asyncio, aiohttp, json
 logger = verboselogs.VerboseLogger(__name__)
 from src.utils.rest import (rest_get, rest_delete, rest_post)
 import json
@@ -184,63 +184,73 @@ async def remove_download(settings_dict, BASE_URL, API_KEY, queueId, queueTitle,
     return
 
 ########### MAIN FUNCTION ###########
-async def queue_cleaner(settings_dict, arr_type, defective_tracker):
-    # Read out correct instance depending on radarr/sonarr flag
-    run_dict = {}
-    if arr_type == 'radarr':
-        BASE_URL    = settings_dict['RADARR_URL']
-        API_KEY     = settings_dict['RADARR_KEY']
-        NAME        = settings_dict['RADARR_NAME']
-        full_queue_param = 'includeUnknownMovieItems'
-    elif arr_type == 'sonarr':
-        BASE_URL    = settings_dict['SONARR_URL']
-        API_KEY     = settings_dict['SONARR_KEY']
-        NAME        = settings_dict['SONARR_NAME']
-        full_queue_param = 'includeUnknownSeriesItems'
-    elif arr_type == 'lidarr':
-        BASE_URL    = settings_dict['LIDARR_URL']
-        API_KEY     = settings_dict['LIDARR_KEY']
-        NAME        = settings_dict['LIDARR_NAME']
-        full_queue_param = 'includeUnknownArtistItems'
+def queue_cleaner(settings_dict, arr_type, defective_tracker):
+    # Create a new dictionary for tracking defective downloads
+    defective_tracker = {}
+
+    # Check the queue for problematic downloads
+    if arr_type == "radarr":
+        failed_downloads = check_for_failed_downloads(settings_dict)
+        stalled_downloads = check_for_stalled_downloads(settings_dict)
+        metadata_missing_downloads = check_for_missing_metadata_downloads(settings_dict)
+        orphan_downloads = check_for_orphan_downloads(settings_dict)
+        unmonitored_downloads = check_for_unmonitored_downloads(settings_dict)
+
+    elif arr_type == "sonarr":
+        failed_downloads = check_for_failed_sonarr_downloads(settings_dict)
+        stalled_downloads = check_for_stalled_sonarr_downloads(settings_dict)
+        metadata_missing_downloads = check_for_missing_metadata_sonarr_downloads(settings_dict)
+        orphan_downloads = check_for_orphan_sonarr_downloads(settings_dict)
+        unmonitored_downloads = check_for_unmonitored_sonarr_downloads(settings_dict)
+
+    elif arr_type == "lidarr":
+        failed_downloads = check_for_failed_lidarr_downloads(settings_dict)
+        stalled_downloads = check_for_stalled_lidarr_downloads(settings_dict)
+        metadata_missing_downloads = check_for_missing_metadata_lidarr_downloads(settings_dict)
+        orphan_downloads = check_for_orphan_lidarr_downloads(settings_dict)
+        unmonitored_downloads = check_for_unmonitored_lidarr_downloads(settings_dict)
+
     else:
-        logger.error('Unknown arr_type specified, exiting: %s', str(arr_type))
-        sys.exit()
-        
-    # Cleans up the downloads queue
-    logger.verbose('Cleaning queue on %s:', NAME)
-    try:
-        
-        full_queue = await get_queue(BASE_URL, API_KEY, params = {full_queue_param: True})
-        if not full_queue: 
-            logger.verbose('>>> Queue is empty.')
-            return
-              
-        deleted_downloads = Deleted_Downloads([])
-        items_detected = 0
+        raise ValueError("Invalid arr_type")
 
-        #items_detected += await test_remove_ALL(             settings_dict, BASE_URL, API_KEY, deleted_downloads, defective_tracker)
+    # Remove the problematic downloads from the queue
+    for download in failed_downloads:
+        remove_download(settings_dict, download)
 
-        if settings_dict['REMOVE_FAILED']:
-            items_detected += await remove_failed(            settings_dict, BASE_URL, API_KEY, deleted_downloads)
-        
-        if settings_dict['REMOVE_STALLED']: 
-            items_detected += await remove_stalled(           settings_dict, BASE_URL, API_KEY, deleted_downloads, defective_tracker)
+    for download in stalled_downloads:
+        remove_download(settings_dict, download)
 
-        if settings_dict['REMOVE_METADATA_MISSING']: 
-            items_detected += await remove_metadata_missing(  settings_dict, BASE_URL, API_KEY, deleted_downloads, defective_tracker)
+    for download in metadata_missing_downloads:
+        remove_download(settings_dict, download)
 
-        if settings_dict['REMOVE_ORPHANS']: 
-            items_detected += await remove_orphans(           settings_dict, BASE_URL, API_KEY, deleted_downloads, full_queue_param)
+    for download in orphan_downloads:
+        remove_download(settings_dict, download)
 
-        if settings_dict['REMOVE_UNMONITORED']: 
-            items_detected += await remove_unmonitored(       settings_dict, BASE_URL, API_KEY, deleted_downloads, arr_type)
+    for download in unmonitored_downloads:
+        remove_download(settings_dict, download)
 
-        if items_detected == 0:
-            logger.verbose('>>> Queue is clean.')
-    except Exception as error:
-            exc_type, exc_obj, exc_tb = sys.exc_info()
-            fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-            logger.warning('>>> Queue cleaning failed on %s. (File: %s / Line: %s / Error Message: %s / Error Type: %s)', NAME, fname, exc_tb.tb_lineno, error, exc_type)
+    # Check if the queue is clean
+    queue = get_queue(settings_dict)
+    if not queue:
+        print("Queue is clean")
+    else:
+        print("Queue is not clean:")
+        print(queue)
+
+async def main():
+    # Load the settings from the config file
+    with open('config.json') as json_file:
+        settings_dict = json.load(json_file)
+
+    # Initialize the defective_tracker dictionary
+    defective_tracker = {}
+
+    # Run the queue cleaner for each media manager
+    for arr_type in ["radarr", "sonarr", "lidarr"]:
+        queue_cleaner(settings_dict, arr_type, defective_tracker)
+
+if __name__ == "__main__":
+    asyncio.run(main())
 
 
 
