@@ -1,5 +1,5 @@
 # Cleans the download queue
-import logging, verboselogs
+import logging, verboselogs, asyncio, aiohttp, json
 logger = verboselogs.VerboseLogger(__name__)
 from src.utils.rest import (rest_get, rest_delete, rest_post)
 import json
